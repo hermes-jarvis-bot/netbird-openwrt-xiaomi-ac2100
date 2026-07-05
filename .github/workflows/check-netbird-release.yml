@@ -54,20 +54,33 @@ jobs:
         run: |
           tag="$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)"
           version="${tag#v}"
-          release_tag="netbird-${version}-openwrt-${OPENWRT_VERSION}"
           {
             echo "tag=${tag}"
             echo "version=${version}"
-            echo "release_tag=${release_tag}"
           } >> "$GITHUB_OUTPUT"
           echo "Latest NetBird: ${tag}"
-          echo "OpenWrt release tag: ${release_tag}"
+
+      - name: Update package metadata
+        run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
+
+      - name: Resolve package release metadata
+        id: package
+        run: |
+          version="$(sed -n 's/^PKG_VERSION:=//p' package/netbird/Makefile)"
+          package_release="$(sed -n 's/^PKG_RELEASE:=//p' package/netbird/Makefile)"
+          release_tag="netbird-${version}-r${package_release}-openwrt-${OPENWRT_VERSION}"
+          {
+            echo "version=${version}"
+            echo "package_release=${package_release}"
+            echo "release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "OpenWrt package release tag: ${release_tag}"
 
       - name: Check whether OpenWrt release already exists
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.latest.outputs.release_tag }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -81,10 +94,6 @@ jobs:
         if: steps.existing.outputs.exists == 'true'
         run: echo "Nothing to do. Latest NetBird package release already exists."
 
-      - name: Update package metadata
-        if: steps.existing.outputs.exists != 'true'
-        run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
-
       - name: Commit metadata bump if changed
         if: steps.existing.outputs.exists != 'true'
         run: |
@@ -94,7 +103,7 @@ jobs:
             echo "No metadata changes to commit."
           else
             git add package/netbird/Makefile README.md
-            git commit -m "Update NetBird to ${{ steps.latest.outputs.tag }}"
+            git commit -m "Update NetBird package metadata to ${{ steps.latest.outputs.tag }}"
             git push
           fi
 
@@ -116,9 +125,10 @@ jobs:
         if: steps.existing.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.latest.outputs.release_tag }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
           NETBIRD_TAG: ${{ steps.latest.outputs.tag }}
-          VERSION: ${{ steps.latest.outputs.version }}
+          VERSION: ${{ steps.package.outputs.version }}
+          PACKAGE_RELEASE: ${{ steps.package.outputs.package_release }}
         run: |
           cat > release-notes.md <<EOF
           NetBird ${NETBIRD_TAG} package for OpenWrt ${OPENWRT_VERSION}.
@@ -126,18 +136,19 @@ jobs:
           Target: ramips/mt7621
           Profile validated: ${PROFILE}
           OpenWrt package architecture: mipsel_24kc
+          Package release: r${PACKAGE_RELEASE}
 
           Install on router:
 
           \`\`\`sh
           opkg update
-          opkg install ./netbird_${VERSION}-r1_mipsel_24kc.ipk
+          opkg install ./netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc.ipk
           \`\`\`
 
           Verify checksums with the attached SHA256SUMS file.
           EOF
 
           gh release create "$RELEASE_TAG" \
-            --title "NetBird ${NETBIRD_TAG} for OpenWrt ${OPENWRT_VERSION}" \
+            --title "NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt ${OPENWRT_VERSION}" \
             --notes-file release-notes.md \
             dist/*.ipk dist/SHA256SUMS dist/FILEINFO.txt

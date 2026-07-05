@@ -31,9 +31,14 @@ hash_value = sys.argv[4]
 asset = sys.argv[5]
 
 text = makefile.read_text()
+old_version_match = re.search(r'^PKG_VERSION:=(.*)$', text, flags=re.M)
+old_version = old_version_match.group(1).strip() if old_version_match else None
 text = re.sub(r'^PKG_VERSION:=.*$', f'PKG_VERSION:={version}', text, flags=re.M)
 text = re.sub(r'^PKG_HASH:=.*$', f'PKG_HASH:={hash_value}', text, flags=re.M)
-text = re.sub(r'^PKG_RELEASE:=.*$', 'PKG_RELEASE:=1', text, flags=re.M)
+if old_version != version:
+    text = re.sub(r'^PKG_RELEASE:=.*$', 'PKG_RELEASE:=1', text, flags=re.M)
+release_match = re.search(r'^PKG_RELEASE:=(.*)$', text, flags=re.M)
+release = release_match.group(1).strip() if release_match else '1'
 makefile.write_text(text)
 
 if readme.exists():
@@ -41,7 +46,7 @@ if readme.exists():
     text = re.sub(r'\| NetBird release \| `v[^`]+` \|', f'| NetBird release | `v{version}` |', text)
     text = re.sub(r'\| NetBird asset \| `netbird_[^`]+_linux_mipsle_softfloat\.tar\.gz` \|', f'| NetBird asset | `{asset}` |', text)
     text = re.sub(r'\| Asset SHA256 \| `[0-9a-f]{64}` \|', f'| Asset SHA256 | `{hash_value}` |', text)
-    text = re.sub(r'netbird_[0-9]+\.[0-9]+\.[0-9]+-r1_mipsel_24kc\.ipk', f'netbird_{version}-r1_mipsel_24kc.ipk', text)
+    text = re.sub(r'netbird_[0-9]+\.[0-9]+\.[0-9]+-(?:r)?[0-9]+_mipsel_24kc\.ipk', f'netbird_{version}-r{release}_mipsel_24kc.ipk', text)
     readme.write_text(text)
 PY
 

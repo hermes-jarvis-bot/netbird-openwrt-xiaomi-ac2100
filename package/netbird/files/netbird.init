@@ -1,6 +1,6 @@
 #!/bin/sh /etc/rc.common
 
-START=95
+START=99
 STOP=10
 USE_PROCD=1
 
@@ -23,6 +23,7 @@ start_service() {
 start_instance() {
 	local section="$1"
 	local enabled management_url admin_url hostname setup_key_file log_level daemon_addr config_file extra_args
+	local state_dir dns_state_file disable_ssh_config
 
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" = "1" ] || return 0
@@ -33,15 +34,27 @@ start_instance() {
 	config_get setup_key_file "$section" setup_key_file "/etc/netbird/setup.key"
 	config_get log_level "$section" log_level "info"
 	config_get daemon_addr "$section" daemon_addr "unix:///var/run/netbird.sock"
-	config_get config_file "$section" config_file "/etc/netbird/default.json"
+	config_get config_file "$section" config_file ""
+	config_get state_dir "$section" state_dir "/root/.config/netbird"
+	config_get dns_state_file "$section" dns_state_file "/var/lib/netbird/state.json"
+	config_get_bool disable_ssh_config "$section" disable_ssh_config 1
 	config_get extra_args "$section" extra_args ""
 
-	mkdir -p /etc/netbird /var/lib/netbird /var/log/netbird /var/run
-	chmod 700 /etc/netbird
+	mkdir -p /etc/netbird "$state_dir" /var/lib/netbird /var/log/netbird /var/run
+	chmod 700 /etc/netbird "$state_dir"
 
 	procd_open_instance "$section"
-	procd_set_param command /usr/bin/netbird service run
-	procd_append_param command --config "$config_file"
+	procd_set_param command /usr/bin/netbird
+	procd_append_param command service run
+
+	# Match the official OpenWrt netbird package behaviour for recent NetBird
+	# profile-based releases. This keeps profile state persistent while avoiding
+	# unnecessary flash writes from DNS and OpenSSH client state.
+	procd_set_param env NB_STATE_DIR="$state_dir"
+	[ "$disable_ssh_config" = "1" ] && procd_append_param env NB_DISABLE_SSH_CONFIG="1"
+	[ -n "$dns_state_file" ] && procd_append_param env NB_DNS_STATE_FILE="$dns_state_file"
+
+	[ -n "$config_file" ] && procd_append_param command --config "$config_file"
 	procd_append_param command --daemon-addr "$daemon_addr"
 	procd_append_param command --log-file console
 	procd_append_param command --log-level "$log_level"
@@ -63,6 +76,7 @@ start_instance() {
 		procd_append_param command "$arg"
 	done
 
+	procd_set_param pidfile /var/run/netbird.pid
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param respawn 3600 5 5

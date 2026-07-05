@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netbird
 PKG_VERSION:=0.74.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE:=$(PKG_NAME)_$(PKG_VERSION)_linux_mipsle_softfloat.tar.gz
 PKG_SOURCE_URL:=https://github.com/netbirdio/netbird/releases/download/v$(PKG_VERSION)
@@ -21,7 +21,7 @@ define Package/netbird
   SUBMENU:=VPN
   TITLE:=NetBird mesh VPN peer client
   URL:=https://netbird.io/
-  DEPENDS:=+ca-bundle +kmod-tun +ip-full +iptables-nft +libc
+  DEPENDS:=+ca-bundle +kmod-wireguard
 endef
 
 define Package/netbird/description

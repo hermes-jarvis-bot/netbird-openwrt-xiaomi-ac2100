@@ -17,6 +17,8 @@ This project packages the upstream NetBird peer client for OpenWrt 24.10 on the 
 
 The package uses the upstream prebuilt `linux/mipsle soft-float` binary, which matches the ramips/mt7621 little-endian MIPS target class used by Xiaomi AC2100 OpenWrt images.
 
+The service layout deliberately follows the official OpenWrt `netbird` package where it matters for recent profile-based NetBird releases: persistent profile state under `/root/.config/netbird`, SSH config writes disabled on OpenWrt/dropbear systems, and DNS state kept under `/var/lib/netbird` to reduce flash wear.
+
 ## Files
 
 ```text
@@ -57,13 +59,13 @@ Copy the generated `.ipk` to the router and install it:
 
 ```sh
 opkg update
-opkg install ./netbird_0.74.2-1_mipsel_24kc.ipk
+opkg install ./netbird_0.74.2-r2_mipsel_24kc.ipk
 ```
 
 If dependencies are not already present, install them from the matching OpenWrt 24.10 package feed:
 
 ```sh
-opkg install ca-bundle kmod-tun ip-full iptables-nft
+opkg install ca-bundle kmod-wireguard
 ```
 
 ## Configure
@@ -107,7 +109,10 @@ ip link show wt0
 
 - The service is disabled by default; installation alone will not join the router to a NetBird network.
 - The setup key is read from `/etc/netbird/setup.key` by default and should be mode `0600`.
-- OpenWrt 24.10 uses firewall4/nftables; this package depends on `iptables-nft` for compatibility with clients expecting iptables-style commands.
+- The default profile/state directory is `/root/.config/netbird`, matching the official OpenWrt package for modern NetBird profile support.
+- `NB_DISABLE_SSH_CONFIG=1` is set by default to avoid NetBird writing OpenSSH client configuration on OpenWrt systems that normally use dropbear.
+- `NB_DNS_STATE_FILE=/var/lib/netbird/state.json` is set by default to avoid unnecessary persistent flash writes.
+- The package depends on `kmod-wireguard`, matching the official OpenWrt package dependency model.
 - If NetBird should not alter DNS or firewall state, pass advanced flags via UCI `extra_args`, for example:
 
 ```sh
