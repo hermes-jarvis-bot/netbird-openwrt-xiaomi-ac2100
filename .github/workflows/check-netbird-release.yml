@@ -1,0 +1,143 @@
+name: Check NetBird release and publish package
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+
+permissions:
+  contents: write
+
+env:
+  OPENWRT_VERSION: 24.10.0
+  PROFILE: xiaomi_mi-router-ac2100
+
+concurrency:
+  group: netbird-release-watcher
+  cancel-in-progress: false
+
+jobs:
+  check-build-release:
+    name: Check latest NetBird and release OpenWrt package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install SDK prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ca-certificates \
+            curl \
+            file \
+            gawk \
+            gettext \
+            git \
+            jq \
+            libncurses-dev \
+            python3 \
+            rsync \
+            unzip \
+            wget \
+            zstd
+
+      - name: Resolve latest NetBird release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)"
+          version="${tag#v}"
+          release_tag="netbird-${version}-openwrt-${OPENWRT_VERSION}"
+          {
+            echo "tag=${tag}"
+            echo "version=${version}"
+            echo "release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Latest NetBird: ${tag}"
+          echo "OpenWrt release tag: ${release_tag}"
+
+      - name: Check whether OpenWrt release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.latest.outputs.release_tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release already exists: $RELEASE_TAG"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release does not exist yet: $RELEASE_TAG"
+          fi
+
+      - name: Stop if package release already exists
+        if: steps.existing.outputs.exists == 'true'
+        run: echo "Nothing to do. Latest NetBird package release already exists."
+
+      - name: Update package metadata
+        if: steps.existing.outputs.exists != 'true'
+        run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
+
+      - name: Commit metadata bump if changed
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No metadata changes to commit."
+          else
+            git add package/netbird/Makefile README.md
+            git commit -m "Update NetBird to ${{ steps.latest.outputs.tag }}"
+            git push
+          fi
+
+      - name: Build package
+        if: steps.existing.outputs.exists != 'true'
+        run: ./scripts/build-sdk.sh
+
+      - name: Collect release artifacts
+        if: steps.existing.outputs.exists != 'true'
+        run: |
+          mkdir -p dist
+          find build -name 'netbird_*.ipk' -exec cp -f {} dist/ \;
+          test -n "$(find dist -name 'netbird_*.ipk' -print -quit)"
+          sha256sum dist/*.ipk | tee dist/SHA256SUMS
+          file dist/*.ipk | tee dist/FILEINFO.txt
+          ls -lah dist
+
+      - name: Create GitHub release
+        if: steps.existing.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.latest.outputs.release_tag }}
+          NETBIRD_TAG: ${{ steps.latest.outputs.tag }}
+          VERSION: ${{ steps.latest.outputs.version }}
+        run: |
+          cat > release-notes.md <<EOF
+          NetBird ${NETBIRD_TAG} package for OpenWrt ${OPENWRT_VERSION}.
+
+          Target: ramips/mt7621
+          Profile validated: ${PROFILE}
+          OpenWrt package architecture: mipsel_24kc
+
+          Install on router:
+
+          \`\`\`sh
+          opkg update
+          opkg install ./netbird_${VERSION}-r1_mipsel_24kc.ipk
+          \`\`\`
+
+          Verify checksums with the attached SHA256SUMS file.
+          EOF
+
+          gh release create "$RELEASE_TAG" \
+            --title "NetBird ${NETBIRD_TAG} for OpenWrt ${OPENWRT_VERSION}" \
+            --notes-file release-notes.md \
+            dist/*.ipk dist/SHA256SUMS dist/FILEINFO.txt

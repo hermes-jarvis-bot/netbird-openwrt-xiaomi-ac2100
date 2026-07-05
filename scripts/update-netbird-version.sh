@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MAKEFILE="$ROOT_DIR/package/netbird/Makefile"
+README="$ROOT_DIR/README.md"
 TAG="${1:-latest}"
 
 if [ "$TAG" = "latest" ]; then
@@ -18,18 +19,30 @@ if [ -z "$HASH" ]; then
   exit 1
 fi
 
-python3 - "$MAKEFILE" "$VERSION" "$HASH" <<'PY'
+python3 - "$MAKEFILE" "$README" "$VERSION" "$HASH" "$ASSET" <<'PY'
 from pathlib import Path
 import re
 import sys
-path = Path(sys.argv[1])
-version = sys.argv[2]
-hash_value = sys.argv[3]
-text = path.read_text()
+
+makefile = Path(sys.argv[1])
+readme = Path(sys.argv[2])
+version = sys.argv[3]
+hash_value = sys.argv[4]
+asset = sys.argv[5]
+
+text = makefile.read_text()
 text = re.sub(r'^PKG_VERSION:=.*$', f'PKG_VERSION:={version}', text, flags=re.M)
 text = re.sub(r'^PKG_HASH:=.*$', f'PKG_HASH:={hash_value}', text, flags=re.M)
 text = re.sub(r'^PKG_RELEASE:=.*$', 'PKG_RELEASE:=1', text, flags=re.M)
-path.write_text(text)
+makefile.write_text(text)
+
+if readme.exists():
+    text = readme.read_text()
+    text = re.sub(r'\| NetBird release \| `v[^`]+` \|', f'| NetBird release | `v{version}` |', text)
+    text = re.sub(r'\| NetBird asset \| `netbird_[^`]+_linux_mipsle_softfloat\.tar\.gz` \|', f'| NetBird asset | `{asset}` |', text)
+    text = re.sub(r'\| Asset SHA256 \| `[0-9a-f]{64}` \|', f'| Asset SHA256 | `{hash_value}` |', text)
+    text = re.sub(r'netbird_[0-9]+\.[0-9]+\.[0-9]+-r1_mipsel_24kc\.ipk', f'netbird_{version}-r1_mipsel_24kc.ipk', text)
+    readme.write_text(text)
 PY
 
 echo "Updated netbird package to v${VERSION} (${HASH})"
