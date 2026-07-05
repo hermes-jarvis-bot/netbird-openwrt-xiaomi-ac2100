@@ -1,0 +1,4 @@
+build/
+*.ipk
+*.tar.zst
+.DS_Store
