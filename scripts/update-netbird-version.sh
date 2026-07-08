@@ -44,6 +44,8 @@ makefile.write_text(text)
 if readme.exists():
     text = readme.read_text()
     text = re.sub(r'\| NetBird release \| `v[^`]+` \|', f'| NetBird release | `v{version}` |', text)
+    text = re.sub(r'\| OpenWrt package release \| `r[0-9]+` \|', f'| OpenWrt package release | `r{release}` |', text)
+    text = re.sub(r'\| OpenWrt package version \| `[0-9]+\.[0-9]+\.[0-9]+-r[0-9]+` \|', f'| OpenWrt package version | `{version}-r{release}` |', text)
     text = re.sub(r'\| NetBird asset \| `netbird_[^`]+_linux_mipsle_softfloat\.tar\.gz` \|', f'| NetBird asset | `{asset}` |', text)
     text = re.sub(r'\| Asset SHA256 \| `[0-9a-f]{64}` \|', f'| Asset SHA256 | `{hash_value}` |', text)
     text = re.sub(r'netbird_[0-9]+\.[0-9]+\.[0-9]+-(?:r)?[0-9]+_mipsel_24kc\.ipk', f'netbird_{version}-r{release}_mipsel_24kc.ipk', text)

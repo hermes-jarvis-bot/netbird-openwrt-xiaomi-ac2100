@@ -18,6 +18,7 @@ on:
       - package/**
       - scripts/**
       - .github/workflows/build.yml
+      - .github/workflows/check-netbird-release.yml
       - README.md
 
 permissions:

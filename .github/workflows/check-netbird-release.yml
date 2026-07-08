@@ -11,6 +11,7 @@ permissions:
 env:
   OPENWRT_VERSION: 24.10.0
   PROFILE: xiaomi_mi-router-ac2100
+  RELEASE_WORKTREE: ../release-worktree
 
 concurrency:
   group: netbird-release-watcher
@@ -60,11 +61,18 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Latest NetBird: ${tag}"
 
-      - name: Update package metadata
+      - name: Prepare detached release worktree
+        run: |
+          rm -rf "$RELEASE_WORKTREE"
+          git worktree add --detach "$RELEASE_WORKTREE" HEAD
+
+      - name: Update package metadata in worktree
+        working-directory: ${{ env.RELEASE_WORKTREE }}
         run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
 
       - name: Resolve package release metadata
         id: package
+        working-directory: ${{ env.RELEASE_WORKTREE }}
         run: |
           version="$(sed -n 's/^PKG_VERSION:=//p' package/netbird/Makefile)"
           package_release="$(sed -n 's/^PKG_RELEASE:=//p' package/netbird/Makefile)"
@@ -94,25 +102,14 @@ jobs:
         if: steps.existing.outputs.exists == 'true'
         run: echo "Nothing to do. Latest NetBird package release already exists."
 
-      - name: Commit metadata bump if changed
+      - name: Build package in worktree
         if: steps.existing.outputs.exists != 'true'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "No metadata changes to commit."
-          else
-            git add package/netbird/Makefile README.md
-            git commit -m "Update NetBird package metadata to ${{ steps.latest.outputs.tag }}"
-            git push
-          fi
-
-      - name: Build package
-        if: steps.existing.outputs.exists != 'true'
+        working-directory: ${{ env.RELEASE_WORKTREE }}
         run: ./scripts/build-sdk.sh
 
       - name: Collect release artifacts
         if: steps.existing.outputs.exists != 'true'
+        working-directory: ${{ env.RELEASE_WORKTREE }}
         run: |
           mkdir -p dist
           find build -name 'netbird_*.ipk' -exec cp -f {} dist/ \;
@@ -121,8 +118,23 @@ jobs:
           file dist/*.ipk | tee dist/FILEINFO.txt
           ls -lah dist
 
+      - name: Commit metadata bump after successful build
+        if: steps.existing.outputs.exists != 'true'
+        working-directory: ${{ env.RELEASE_WORKTREE }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No metadata changes to commit."
+          else
+            git add package/netbird/Makefile README.md
+            git commit -m "Update NetBird package metadata to ${{ steps.latest.outputs.tag }}"
+            git push origin HEAD:master
+          fi
+
       - name: Create GitHub release
         if: steps.existing.outputs.exists != 'true'
+        working-directory: ${{ env.RELEASE_WORKTREE }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
@@ -130,7 +142,7 @@ jobs:
           VERSION: ${{ steps.package.outputs.version }}
           PACKAGE_RELEASE: ${{ steps.package.outputs.package_release }}
         run: |
-          cat > release-notes.md <<EOF
+          cat > release-notes.md.in <<'EOF'
           NetBird ${NETBIRD_TAG} package for OpenWrt ${OPENWRT_VERSION}.
 
           Target: ramips/mt7621
@@ -140,13 +152,16 @@ jobs:
 
           Install on router:
 
-          \`\`\`sh
+          ```sh
           opkg update
+          opkg install ca-bundle kmod-wireguard
           opkg install ./netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc.ipk
-          \`\`\`
+          ```
 
           Verify checksums with the attached SHA256SUMS file.
           EOF
+
+          sed 's/^          //' release-notes.md.in | envsubst > release-notes.md
 
           gh release create "$RELEASE_TAG" \
             --title "NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt ${OPENWRT_VERSION}" \
