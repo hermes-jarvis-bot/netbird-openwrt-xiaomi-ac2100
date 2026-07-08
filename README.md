@@ -1,23 +1,22 @@
 # NetBird for OpenWrt 24.10 — Xiaomi AC2100
 
-This project packages the upstream NetBird peer client for OpenWrt 24.10 on the Xiaomi AC2100 family.
+This project packages the upstream NetBird peer client for the OpenWrt 24.10 release line on the Xiaomi AC2100 family.
 
-## Target
+## Target matrix
 
 | Item | Value |
 | --- | --- |
-| OpenWrt release | `24.10.0` |
+| OpenWrt releases | `24.10.0` through `24.10.7` |
 | Target/subtarget | `ramips/mt7621` |
 | Default profile | `xiaomi_mi-router-ac2100` |
 | Also relevant profile | `xiaomi_redmi-router-ac2100` |
 | OpenWrt package arch | `mipsel_24kc` |
-| NetBird release | `v0.74.2` |
-| OpenWrt package release | `r3` |
-| OpenWrt package version | `0.74.2-r3` |
-| NetBird asset | `netbird_0.74.2_linux_mipsle_softfloat.tar.gz` |
-| Asset SHA256 | `09044a1b5811311a386090b5200519f4b6e311d21a97d62b369c00ab4f1f5d3d` |
+| NetBird version source of truth | `package/netbird/Makefile` |
+| Release tag format | `netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>` |
 
-The package uses the upstream prebuilt `linux/mipsle soft-float` binary, which matches the ramips/mt7621 little-endian MIPS target class used by Xiaomi AC2100 OpenWrt images.
+The package uses the upstream prebuilt `linux/mipsle soft-float` NetBird binary, which matches the ramips/mt7621 little-endian MIPS target class used by Xiaomi AC2100 OpenWrt images.
+
+NetBird version, package release, source asset, and source hash are intentionally not pinned in this README. They are defined in `package/netbird/Makefile` and updated by `scripts/update-netbird-version.sh` / the scheduled GitHub Actions release watcher.
 
 The service layout deliberately follows the official OpenWrt `netbird` package where it matters for recent profile-based NetBird releases: persistent profile state under `/root/.config/netbird`, SSH config writes disabled on OpenWrt/dropbear systems, and DNS state kept under `/var/lib/netbird` to reduce flash wear.
 
@@ -28,7 +27,7 @@ OpenWrt 24.10 currently carries an older NetBird package in the official feeds. 
 ## Files
 
 ```text
-package/netbird/Makefile              OpenWrt package definition
+package/netbird/Makefile              OpenWrt package definition and NetBird version metadata
 package/netbird/files/netbird.init    procd init script
 package/netbird/files/netbird.config  UCI defaults
 scripts/build-sdk.sh                  reproducible SDK build helper
@@ -48,16 +47,29 @@ sudo apt-get install -y --no-install-recommends \
 
 ## Build
 
-From the project root:
+From the project root, build the default OpenWrt release configured by `scripts/build-sdk.sh`:
 
 ```sh
 ./scripts/build-sdk.sh
 ```
 
-By default this downloads and uses:
+To build for a specific OpenWrt 24.10 point release:
+
+```sh
+OPENWRT_VERSION=24.10.7 ./scripts/build-sdk.sh
+```
+
+The 24.10 matrix currently covers:
 
 ```text
-https://downloads.openwrt.org/releases/24.10.0/targets/ramips/mt7621/openwrt-sdk-24.10.0-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64.tar.zst
+24.10.0
+24.10.1
+24.10.2
+24.10.3
+24.10.4
+24.10.5
+24.10.6
+24.10.7
 ```
 
 The output `.ipk` will be under the SDK `bin/packages/...` directory printed by the script.
@@ -65,7 +77,7 @@ The output `.ipk` will be under the SDK `bin/packages/...` directory printed by 
 To target Redmi AC2100 profile metadata validation instead:
 
 ```sh
-PROFILE=xiaomi_redmi-router-ac2100 ./scripts/build-sdk.sh
+PROFILE=xiaomi_redmi-router-ac2100 OPENWRT_VERSION=24.10.7 ./scripts/build-sdk.sh
 ```
 
 The package itself is architecture-specific rather than image-profile-specific, but the profile check prevents accidentally building against the wrong OpenWrt target.
@@ -73,7 +85,7 @@ The package itself is architecture-specific rather than image-profile-specific, 
 For SDK archives with a different toolchain suffix, override the SDK basename explicitly:
 
 ```sh
-SDK_BASENAME=openwrt-sdk-24.10.0-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64 ./scripts/build-sdk.sh
+SDK_BASENAME=openwrt-sdk-24.10.7-ramips-mt7621_gcc-13.3.0_musl.Linux-x86_64 OPENWRT_VERSION=24.10.7 ./scripts/build-sdk.sh
 ```
 
 ## Download prebuilt packages
@@ -82,13 +94,25 @@ Prebuilt `.ipk` artifacts are published under GitHub Releases:
 
 https://github.com/hermes-jarvis-bot/netbird-openwrt-xiaomi-ac2100/releases
 
-For the current package release:
+Choose the release matching the OpenWrt version installed on the router. Release tags follow this format:
 
-```sh
-wget https://github.com/hermes-jarvis-bot/netbird-openwrt-xiaomi-ac2100/releases/download/netbird-0.74.2-r3-openwrt-24.10.0/netbird_0.74.2-r3_mipsel_24kc.ipk
-wget https://github.com/hermes-jarvis-bot/netbird-openwrt-xiaomi-ac2100/releases/download/netbird-0.74.2-r3-openwrt-24.10.0/SHA256SUMS
-sha256sum -c SHA256SUMS
+```text
+netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>
 ```
+
+For example, choose the release whose suffix matches the router firmware, such as:
+
+```text
+netbird-<netbird-version>-r<package-release>-openwrt-24.10.7
+```
+
+The `.ipk` filename follows OpenWrt package naming and does not include the OpenWrt release:
+
+```text
+netbird_<netbird-version>-r<package-release>_mipsel_24kc.ipk
+```
+
+Always verify the downloaded package with the `SHA256SUMS` asset from the same GitHub Release.
 
 ## Install on router
 
@@ -97,7 +121,7 @@ Copy the generated or downloaded `.ipk` to the router and install it:
 ```sh
 opkg update
 opkg install ca-bundle kmod-wireguard
-opkg install ./netbird_0.74.2-r3_mipsel_24kc.ipk
+opkg install ./netbird_<netbird-version>-r<package-release>_mipsel_24kc.ipk
 ```
 
 Use package feeds matching the exact OpenWrt version running on the router, especially for kernel packages such as `kmod-wireguard`.
@@ -137,6 +161,16 @@ uci commit netbird
 logread -f -e netbird
 netbird status --daemon-addr unix:///var/run/netbird.sock
 ip link show | grep -E 'wt|netbird|wireguard'
+```
+
+## GitHub Actions automation
+
+- `Build OpenWrt package` runs a matrix build for OpenWrt `24.10.0` through `24.10.7`.
+- `Check NetBird release and publish package` checks the latest upstream NetBird release every 15 minutes.
+- The release watcher publishes one GitHub Release per OpenWrt point release, using the tag format:
+
+```text
+netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>
 ```
 
 ## Operational notes

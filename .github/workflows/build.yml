@@ -3,10 +3,6 @@ name: Build OpenWrt package
 on:
   workflow_dispatch:
     inputs:
-      openwrt_version:
-        description: OpenWrt release version
-        required: false
-        default: 24.10.0
       profile:
         description: OpenWrt device profile to validate
         required: false
@@ -26,9 +22,21 @@ permissions:
 
 jobs:
   build:
-    name: Build netbird ipk
+    name: Build netbird ipk / OpenWrt ${{ matrix.openwrt_version }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        openwrt_version:
+          - 24.10.0
+          - 24.10.1
+          - 24.10.2
+          - 24.10.3
+          - 24.10.4
+          - 24.10.5
+          - 24.10.6
+          - 24.10.7
 
     steps:
       - name: Checkout
@@ -55,24 +63,24 @@ jobs:
 
       - name: Build package
         env:
-          OPENWRT_VERSION: ${{ inputs.openwrt_version || '24.10.0' }}
+          OPENWRT_VERSION: ${{ matrix.openwrt_version }}
           PROFILE: ${{ inputs.profile || 'xiaomi_mi-router-ac2100' }}
         run: ./scripts/build-sdk.sh
 
       - name: Collect artifacts
         run: |
-          mkdir -p dist
-          find build -name 'netbird_*.ipk' -exec cp -f {} dist/ \;
-          test -n "$(find dist -name 'netbird_*.ipk' -print -quit)"
-          sha256sum dist/*.ipk | tee dist/SHA256SUMS
-          file dist/*.ipk | tee dist/FILEINFO.txt
+          mkdir -p "dist/${{ matrix.openwrt_version }}"
+          find build -name 'netbird_*.ipk' -exec cp -f {} "dist/${{ matrix.openwrt_version }}/" \;
+          test -n "$(find "dist/${{ matrix.openwrt_version }}" -name 'netbird_*.ipk' -print -quit)"
+          sha256sum "dist/${{ matrix.openwrt_version }}"/*.ipk | tee "dist/${{ matrix.openwrt_version }}/SHA256SUMS"
+          file "dist/${{ matrix.openwrt_version }}"/*.ipk | tee "dist/${{ matrix.openwrt_version }}/FILEINFO.txt"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@v7
         with:
-          name: netbird-openwrt-ipk
+          name: netbird-openwrt-${{ matrix.openwrt_version }}-ipk
           path: |
-            dist/*.ipk
-            dist/SHA256SUMS
-            dist/FILEINFO.txt
+            dist/${{ matrix.openwrt_version }}/*.ipk
+            dist/${{ matrix.openwrt_version }}/SHA256SUMS
+            dist/${{ matrix.openwrt_version }}/FILEINFO.txt
           if-no-files-found: error
