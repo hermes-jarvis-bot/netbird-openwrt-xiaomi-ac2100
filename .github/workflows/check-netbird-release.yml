@@ -1,9 +1,9 @@
-name: Check NetBird release and publish package
+name: Check NetBird release and publish OpenWrt 24.10 package set
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '0 * * * *'
 
 permissions:
   contents: write
@@ -12,9 +12,80 @@ concurrency:
   group: netbird-release-watcher
   cancel-in-progress: false
 
+env:
+  OPENWRT_RELEASE_LINE: '24.10'
+  PROFILE: xiaomi_mi-router-ac2100
+
 jobs:
-  build-release:
-    name: Release OpenWrt ${{ matrix.openwrt_version }} package
+  preflight:
+    name: Resolve latest NetBird and check aggregate release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      latest_tag: ${{ steps.latest.outputs.tag }}
+      version: ${{ steps.package.outputs.version }}
+      package_release: ${{ steps.package.outputs.package_release }}
+      release_tag: ${{ steps.package.outputs.release_tag }}
+      release_exists: ${{ steps.existing.outputs.exists }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest NetBird release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Latest NetBird: ${tag}"
+
+      - name: Prepare detached metadata worktree
+        run: |
+          git worktree add --detach ../release-preflight-worktree HEAD
+
+      - name: Resolve package release metadata
+        id: package
+        working-directory: ../release-preflight-worktree
+        env:
+          OPENWRT_RELEASE_LINE: ${{ env.OPENWRT_RELEASE_LINE }}
+        run: |
+          ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
+          version="$(sed -n 's/^PKG_VERSION:=//p' package/netbird/Makefile)"
+          package_release="$(sed -n 's/^PKG_RELEASE:=//p' package/netbird/Makefile)"
+          release_tag="netbird-${version}-r${package_release}-openwrt-${OPENWRT_RELEASE_LINE}"
+          {
+            echo "version=${version}"
+            echo "package_release=${package_release}"
+            echo "release_tag=${release_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Aggregate OpenWrt release tag: ${release_tag}"
+
+      - name: Check whether aggregate release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Aggregate release already exists: $RELEASE_TAG"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Aggregate release does not exist yet: $RELEASE_TAG"
+          fi
+
+      - name: Stop early when aggregate release exists
+        if: steps.existing.outputs.exists == 'true'
+        run: echo "No new NetBird package release. Matrix build is intentionally skipped."
+
+  build-packages:
+    name: Build OpenWrt ${{ matrix.openwrt_version }} package
+    needs: preflight
+    if: needs.preflight.outputs.release_exists != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -30,7 +101,6 @@ jobs:
           - 24.10.6
           - 24.10.7
     env:
-      PROFILE: xiaomi_mi-router-ac2100
       RELEASE_WORKTREE: ../release-worktree-${{ matrix.openwrt_version }}
 
     steps:
@@ -58,124 +128,50 @@ jobs:
             wget \
             zstd
 
-      - name: Resolve latest NetBird release
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)"
-          version="${tag#v}"
-          {
-            echo "tag=${tag}"
-            echo "version=${version}"
-          } >> "$GITHUB_OUTPUT"
-          echo "Latest NetBird: ${tag}"
-
       - name: Prepare detached release worktree
         run: |
-          rm -rf "$RELEASE_WORKTREE"
           git worktree add --detach "$RELEASE_WORKTREE" HEAD
 
       - name: Update package metadata in worktree
         working-directory: ${{ env.RELEASE_WORKTREE }}
-        run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
-
-      - name: Resolve package release metadata
-        id: package
-        working-directory: ${{ env.RELEASE_WORKTREE }}
-        env:
-          OPENWRT_VERSION: ${{ matrix.openwrt_version }}
-        run: |
-          version="$(sed -n 's/^PKG_VERSION:=//p' package/netbird/Makefile)"
-          package_release="$(sed -n 's/^PKG_RELEASE:=//p' package/netbird/Makefile)"
-          release_tag="netbird-${version}-r${package_release}-openwrt-${OPENWRT_VERSION}"
-          {
-            echo "version=${version}"
-            echo "package_release=${package_release}"
-            echo "release_tag=${release_tag}"
-          } >> "$GITHUB_OUTPUT"
-          echo "OpenWrt package release tag: ${release_tag}"
-
-      - name: Check whether OpenWrt release already exists
-        id: existing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
-        run: |
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Release already exists: $RELEASE_TAG"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Release does not exist yet: $RELEASE_TAG"
-          fi
-
-      - name: Stop if package release already exists
-        if: steps.existing.outputs.exists == 'true'
-        run: echo "Nothing to do. Latest NetBird package release already exists for OpenWrt ${{ matrix.openwrt_version }}."
+        run: ./scripts/update-netbird-version.sh "${{ needs.preflight.outputs.latest_tag }}"
 
       - name: Build package in worktree
-        if: steps.existing.outputs.exists != 'true'
         working-directory: ${{ env.RELEASE_WORKTREE }}
         env:
           OPENWRT_VERSION: ${{ matrix.openwrt_version }}
           PROFILE: ${{ env.PROFILE }}
         run: ./scripts/build-sdk.sh
 
-      - name: Collect release artifacts
-        if: steps.existing.outputs.exists != 'true'
-        working-directory: ${{ env.RELEASE_WORKTREE }}
-        run: |
-          mkdir -p dist
-          find build -name 'netbird_*.ipk' -exec cp -f {} dist/ \;
-          test -n "$(find dist -name 'netbird_*.ipk' -print -quit)"
-          sha256sum dist/*.ipk | tee dist/SHA256SUMS
-          file dist/*.ipk | tee dist/FILEINFO.txt
-          ls -lah dist
-
-      - name: Create GitHub release
-        if: steps.existing.outputs.exists != 'true'
+      - name: Collect version-labelled artifact
         working-directory: ${{ env.RELEASE_WORKTREE }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          PACKAGE_RELEASE: ${{ needs.preflight.outputs.package_release }}
           OPENWRT_VERSION: ${{ matrix.openwrt_version }}
-          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
-          NETBIRD_TAG: ${{ steps.latest.outputs.tag }}
-          VERSION: ${{ steps.package.outputs.version }}
-          PACKAGE_RELEASE: ${{ steps.package.outputs.package_release }}
         run: |
-          cat > release-notes.md.in <<'EOF'
-          NetBird ${NETBIRD_TAG} package for OpenWrt ${OPENWRT_VERSION}.
+          mkdir -p dist
+          source_ipk="$(find build -name 'netbird_*.ipk' -print -quit)"
+          test -n "$source_ipk"
+          target_ipk="dist/netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${OPENWRT_VERSION}.ipk"
+          cp "$source_ipk" "$target_ipk"
+          sha256sum "$target_ipk"
+          file "$target_ipk"
 
-          Target: ramips/mt7621
-          Profile validated: ${PROFILE}
-          OpenWrt package architecture: mipsel_24kc
-          Package release: r${PACKAGE_RELEASE}
-
-          Install on router:
-
-          ```sh
-          opkg update
-          opkg install ca-bundle kmod-wireguard
-          opkg install ./netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc.ipk
-          ```
-
-          Use package feeds matching OpenWrt ${OPENWRT_VERSION}, especially for kmod-wireguard.
-          Verify checksums with the attached SHA256SUMS file.
-          EOF
-
-          sed 's/^          //' release-notes.md.in | envsubst > release-notes.md
-
-          gh release create "$RELEASE_TAG" \
-            --title "NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt ${OPENWRT_VERSION}" \
-            --notes-file release-notes.md \
-            dist/*.ipk dist/SHA256SUMS dist/FILEINFO.txt
+      - name: Upload version-labelled package
+        uses: actions/upload-artifact@v7
+        with:
+          name: netbird-openwrt-${{ matrix.openwrt_version }}-release-asset
+          path: ${{ env.RELEASE_WORKTREE }}/dist/*.ipk
+          if-no-files-found: error
 
   commit-metadata:
     name: Commit NetBird metadata after successful matrix
+    needs:
+      - preflight
+      - build-packages
+    if: needs.preflight.outputs.release_exists != 'true' && needs.build-packages.result == 'success'
     runs-on: ubuntu-24.04
-    needs: build-release
-    if: always() && needs.build-release.result == 'success'
 
     steps:
       - name: Checkout
@@ -183,17 +179,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve latest NetBird release
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="$(gh api repos/netbirdio/netbird/releases/latest --jq .tag_name)"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-          echo "Latest NetBird: ${tag}"
-
       - name: Update package metadata
-        run: ./scripts/update-netbird-version.sh "${{ steps.latest.outputs.tag }}"
+        run: ./scripts/update-netbird-version.sh "${{ needs.preflight.outputs.latest_tag }}"
 
       - name: Commit metadata bump if changed
         run: |
@@ -202,7 +189,84 @@ jobs:
           if git diff --quiet; then
             echo "No metadata changes to commit."
           else
-            git add package/netbird/Makefile README.md
-            git commit -m "Update NetBird package metadata to ${{ steps.latest.outputs.tag }}"
+            git add package/netbird/Makefile
+            git commit -m "Update NetBird package metadata to ${{ needs.preflight.outputs.latest_tag }}"
             git push origin HEAD:master
           fi
+
+  publish-release:
+    name: Publish aggregate OpenWrt 24.10 release
+    needs:
+      - preflight
+      - build-packages
+      - commit-metadata
+    if: needs.preflight.outputs.release_exists != 'true' && needs.build-packages.result == 'success' && needs.commit-metadata.result == 'success'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download matrix artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: netbird-openwrt-*-release-asset
+          path: release-assets
+          merge-multiple: true
+
+      - name: Verify and prepare aggregate release assets
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+          PACKAGE_RELEASE: ${{ needs.preflight.outputs.package_release }}
+        run: |
+          cd release-assets
+          test "$(find . -maxdepth 1 -name '*.ipk' -type f | wc -l)" -eq 8
+          for openwrt_version in 24.10.{0..7}; do
+            test -f "netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${openwrt_version}.ipk"
+          done
+          sha256sum ./*.ipk > SHA256SUMS
+          file ./*.ipk > FILEINFO.txt
+          ls -lah
+
+      - name: Create aggregate GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
+          NETBIRD_TAG: ${{ needs.preflight.outputs.latest_tag }}
+          VERSION: ${{ needs.preflight.outputs.version }}
+          PACKAGE_RELEASE: ${{ needs.preflight.outputs.package_release }}
+        run: |
+          git fetch origin master
+          release_target="$(git rev-parse origin/master)"
+          cat > release-notes.md.in <<'EOF'
+          NetBird ${NETBIRD_TAG} package set for the OpenWrt 24.10 release line.
+
+          Target: ramips/mt7621
+          Profiles: xiaomi_mi-router-ac2100 and xiaomi_redmi-router-ac2100
+          OpenWrt package architecture: mipsel_24kc
+          Package release: r${PACKAGE_RELEASE}
+
+          This release contains one `.ipk` built with each matching OpenWrt SDK:
+
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.0.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.1.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.2.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.3.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.4.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.5.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.6.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.7.ipk`
+
+          Download the asset whose `openwrt-<version>` suffix exactly matches the router firmware. Install dependencies from feeds matching that firmware, especially `kmod-wireguard`.
+
+          Verify the selected asset against `SHA256SUMS` before installation.
+          EOF
+
+          sed 's/^          //' release-notes.md.in | envsubst > release-notes.md
+          gh release create "$RELEASE_TAG" \
+            --target "$release_target" \
+            --title "NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt 24.10" \
+            --notes-file release-notes.md \
+            release-assets/*.ipk release-assets/SHA256SUMS release-assets/FILEINFO.txt

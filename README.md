@@ -12,7 +12,7 @@ This project packages the upstream NetBird peer client for the OpenWrt 24.10 rel
 | Also relevant profile | `xiaomi_redmi-router-ac2100` |
 | OpenWrt package arch | `mipsel_24kc` |
 | NetBird version source of truth | `package/netbird/Makefile` |
-| Release tag format | `netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>` |
+| Release tag format | `netbird-<netbird-version>-r<package-release>-openwrt-24.10` |
 
 The package uses the upstream prebuilt `linux/mipsle soft-float` NetBird binary, which matches the ramips/mt7621 little-endian MIPS target class used by Xiaomi AC2100 OpenWrt images.
 
@@ -94,25 +94,21 @@ Prebuilt `.ipk` artifacts are published under GitHub Releases:
 
 https://github.com/hermes-jarvis-bot/netbird-openwrt-xiaomi-ac2100/releases
 
-Choose the release matching the OpenWrt version installed on the router. Release tags follow this format:
+Choose the aggregate release for the OpenWrt 24.10 line. Release tags follow this format:
 
 ```text
-netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>
+netbird-<netbird-version>-r<package-release>-openwrt-24.10
 ```
 
-For example, choose the release whose suffix matches the router firmware, such as:
+Each aggregate release includes eight explicitly version-labelled assets, one built with each matching SDK:
 
 ```text
-netbird-<netbird-version>-r<package-release>-openwrt-24.10.7
+netbird_<netbird-version>-r<package-release>_mipsel_24kc-openwrt-24.10.0.ipk
+...
+netbird_<netbird-version>-r<package-release>_mipsel_24kc-openwrt-24.10.7.ipk
 ```
 
-The `.ipk` filename follows OpenWrt package naming and does not include the OpenWrt release:
-
-```text
-netbird_<netbird-version>-r<package-release>_mipsel_24kc.ipk
-```
-
-Always verify the downloaded package with the `SHA256SUMS` asset from the same GitHub Release.
+Download the asset whose `openwrt-<version>` suffix exactly matches the firmware on the router. Always verify it using the `SHA256SUMS` asset from the same GitHub Release.
 
 ## Install on router
 
@@ -166,11 +162,12 @@ ip link show | grep -E 'wt|netbird|wireguard'
 ## GitHub Actions automation
 
 - `Build OpenWrt package` runs a matrix build for OpenWrt `24.10.0` through `24.10.7`.
-- `Check NetBird release and publish package` checks the latest upstream NetBird release every 15 minutes.
-- The release watcher publishes one GitHub Release per OpenWrt point release, using the tag format:
+- `Check NetBird release and publish package` performs one hourly preflight against the latest upstream NetBird release.
+- If the aggregate release already exists, the protocol exits before any OpenWrt SDK download or matrix build.
+- For a new NetBird version, it builds the `24.10.0`–`24.10.7` matrix and publishes one GitHub Release for the complete OpenWrt 24.10 line:
 
 ```text
-netbird-<netbird-version>-r<package-release>-openwrt-<openwrt-version>
+netbird-<netbird-version>-r<package-release>-openwrt-24.10
 ```
 
 ## Operational notes
