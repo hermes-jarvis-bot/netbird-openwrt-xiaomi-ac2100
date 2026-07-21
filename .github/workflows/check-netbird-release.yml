@@ -150,10 +150,11 @@ jobs:
           PACKAGE_RELEASE: ${{ needs.preflight.outputs.package_release }}
           OPENWRT_VERSION: ${{ matrix.openwrt_version }}
         run: |
-          mkdir -p dist
           source_ipk="$(find build -name 'netbird_*.ipk' -print -quit)"
           test -n "$source_ipk"
-          target_ipk="dist/netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${OPENWRT_VERSION}.ipk"
+          asset_dir="$GITHUB_WORKSPACE/release-assets"
+          mkdir -p "$asset_dir"
+          target_ipk="$asset_dir/netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${OPENWRT_VERSION}.ipk"
           cp "$source_ipk" "$target_ipk"
           sha256sum "$target_ipk"
           file "$target_ipk"
@@ -162,7 +163,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: netbird-openwrt-${{ matrix.openwrt_version }}-release-asset
-          path: ${{ env.RELEASE_WORKTREE }}/dist/*.ipk
+          path: release-assets/*.ipk
           if-no-files-found: error
 
   commit-metadata:
