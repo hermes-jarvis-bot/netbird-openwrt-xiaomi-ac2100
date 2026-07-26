@@ -27,6 +27,7 @@ jobs:
       package_release: ${{ steps.package.outputs.package_release }}
       release_tag: ${{ steps.package.outputs.release_tag }}
       release_exists: ${{ steps.existing.outputs.exists }}
+      release_complete: ${{ steps.existing.outputs.complete }}
 
     steps:
       - name: Checkout
@@ -64,28 +65,41 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Aggregate OpenWrt release tag: ${release_tag}"
 
-      - name: Check whether aggregate release already exists
+      - name: Check aggregate release completeness
         id: existing
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
+          VERSION: ${{ steps.package.outputs.version }}
+          PACKAGE_RELEASE: ${{ steps.package.outputs.package_release }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Aggregate release already exists: $RELEASE_TAG"
+            assets="$(gh release view "$RELEASE_TAG" --json assets --jq '[.assets[].name]')"
+            complete=true
+            for openwrt_version in 24.10.{0..8}; do
+              expected="netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${openwrt_version}.ipk"
+              if ! jq -e --arg expected "$expected" 'index($expected) != null' <<<"$assets" >/dev/null; then
+                echo "Missing aggregate asset: $expected"
+                complete=false
+              fi
+            done
+            echo "complete=${complete}" >> "$GITHUB_OUTPUT"
+            echo "Aggregate release ${RELEASE_TAG}: complete=${complete}"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "complete=false" >> "$GITHUB_OUTPUT"
             echo "Aggregate release does not exist yet: $RELEASE_TAG"
           fi
 
-      - name: Stop early when aggregate release exists
-        if: steps.existing.outputs.exists == 'true'
+      - name: Stop early when aggregate release is complete
+        if: steps.existing.outputs.complete == 'true'
         run: echo "No new NetBird package release. Matrix build is intentionally skipped."
 
   build-packages:
     name: Build OpenWrt ${{ matrix.openwrt_version }} package
     needs: preflight
-    if: needs.preflight.outputs.release_exists != 'true'
+    if: needs.preflight.outputs.release_complete != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -172,7 +186,7 @@ jobs:
     needs:
       - preflight
       - build-packages
-    if: needs.preflight.outputs.release_exists != 'true' && needs.build-packages.result == 'success'
+    if: needs.preflight.outputs.release_complete != 'true' && needs.build-packages.result == 'success'
     runs-on: ubuntu-24.04
 
     steps:
@@ -202,7 +216,7 @@ jobs:
       - preflight
       - build-packages
       - commit-metadata
-    if: needs.preflight.outputs.release_exists != 'true' && needs.build-packages.result == 'success' && needs.commit-metadata.result == 'success'
+    if: needs.preflight.outputs.release_complete != 'true' && needs.build-packages.result == 'success' && needs.commit-metadata.result == 'success'
     runs-on: ubuntu-24.04
 
     steps:
@@ -268,8 +282,17 @@ jobs:
           EOF
 
           sed 's/^          //' release-notes.md.in | envsubst > release-notes.md
-          gh release create "$RELEASE_TAG" \
-            --target "$release_target" \
-            --title "NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt 24.10" \
-            --notes-file release-notes.md \
-            release-assets/*.ipk release-assets/SHA256SUMS release-assets/FILEINFO.txt
+          release_title="NetBird ${NETBIRD_TAG} r${PACKAGE_RELEASE} for OpenWrt 24.10"
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "$release_title" \
+              --notes-file release-notes.md
+            gh release upload "$RELEASE_TAG" --clobber \
+              release-assets/*.ipk release-assets/SHA256SUMS release-assets/FILEINFO.txt
+          else
+            gh release create "$RELEASE_TAG" \
+              --target "$release_target" \
+              --title "$release_title" \
+              --notes-file release-notes.md \
+              release-assets/*.ipk release-assets/SHA256SUMS release-assets/FILEINFO.txt
+          fi

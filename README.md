@@ -164,7 +164,8 @@ ip link show | grep -E 'wt|netbird|wireguard'
 
 - `Build OpenWrt package` runs a matrix build for OpenWrt `24.10.0` through `24.10.8`.
 - `Check NetBird release and publish package` performs one hourly preflight against the latest upstream NetBird release.
-- If the aggregate release already exists, the protocol exits before any OpenWrt SDK download or matrix build.
+- If the aggregate release already contains every expected matrix asset, the protocol exits before any OpenWrt SDK download or matrix build.
+- If an aggregate release is incomplete—for example, because a newly supported OpenWrt point release was added—the protocol rebuilds the matrix and updates the existing release assets.
 - For a new NetBird version, it builds the `24.10.0`–`24.10.8` matrix and publishes one GitHub Release for the complete OpenWrt 24.10 line:
 
 ```text
