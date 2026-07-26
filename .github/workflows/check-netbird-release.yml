@@ -100,6 +100,7 @@ jobs:
           - 24.10.5
           - 24.10.6
           - 24.10.7
+          - 24.10.8
     env:
       RELEASE_WORKTREE: ../release-worktree-${{ matrix.openwrt_version }}
 
@@ -223,8 +224,8 @@ jobs:
           PACKAGE_RELEASE: ${{ needs.preflight.outputs.package_release }}
         run: |
           cd release-assets
-          test "$(find . -maxdepth 1 -name '*.ipk' -type f | wc -l)" -eq 8
-          for openwrt_version in 24.10.{0..7}; do
+          test "$(find . -maxdepth 1 -name '*.ipk' -type f | wc -l)" -eq 9
+          for openwrt_version in 24.10.{0..8}; do
             test -f "netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-${openwrt_version}.ipk"
           done
           sha256sum ./*.ipk > SHA256SUMS
@@ -259,6 +260,7 @@ jobs:
           - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.5.ipk`
           - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.6.ipk`
           - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.7.ipk`
+          - `netbird_${VERSION}-r${PACKAGE_RELEASE}_mipsel_24kc-openwrt-24.10.8.ipk`
 
           Download the asset whose `openwrt-<version>` suffix exactly matches the router firmware. Install dependencies from feeds matching that firmware, especially `kmod-wireguard`.
 
