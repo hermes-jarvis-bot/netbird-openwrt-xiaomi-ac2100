@@ -101,7 +101,7 @@ Choose the aggregate release for the OpenWrt 24.10 line. Release tags follow thi
 netbird-<netbird-version>-r<package-release>-openwrt-24.10
 ```
 
-Each aggregate release includes eight explicitly version-labelled assets, one built with each matching SDK:
+Each aggregate release includes nine explicitly version-labelled assets, one built with each matching SDK:
 
 ```text
 netbird_<netbird-version>-r<package-release>_mipsel_24kc-openwrt-24.10.0.ipk
@@ -110,6 +110,22 @@ netbird_<netbird-version>-r<package-release>_mipsel_24kc-openwrt-24.10.8.ipk
 ```
 
 Download the asset whose `openwrt-<version>` suffix exactly matches the firmware on the router. Always verify it using the `SHA256SUMS` asset from the same GitHub Release.
+
+For the Xiaomi AC2100 family, `opkg` may reject a NetBird upgrade before installation with an error such as:
+
+```text
+Only have 29480kb available on filesystem /overlay, pkg netbird needs 43230
+```
+
+This is a conservative logical-size check based on the package `Installed-Size`. The writable overlay uses UBIFS compression, so the logical size of the statically linked NetBird binary can be much larger than its actual physical flash footprint. On the tested Redmi Router AC2100, NetBird 0.77.x installed successfully with approximately `28.8 MiB` free after installation.
+
+After verifying the package checksum and confirming that the router has sufficient measured physical headroom, retry the upgrade with:
+
+```sh
+opkg --force-space install /tmp/netbird_<netbird-version>-r<package-release>_mipsel_24kc-openwrt-<openwrt-version>.ipk
+```
+
+Use `--force-space` only after checking `df -h /overlay` and only when the package replaces an already-tested NetBird build on the same device. It bypasses `opkg`'s logical-size preflight; it does not create flash space and must not be used blindly on a nearly full overlay.
 
 ## Install on router
 
@@ -151,6 +167,25 @@ uci set netbird.main.admin_url='https://app.example.com:443'
 uci commit netbird
 /etc/init.d/netbird restart
 ```
+
+### Legacy releases and the `procd` init-script fix
+
+Releases with package release `r1` published before `0.77.0-r2` contain a known OpenWrt integration defect in `/etc/init.d/netbird`. The daemon binary itself is usable, but enabling the service can result in:
+
+```text
+active with no instances
+```
+
+The affected script uses a variable named `CONFIG_SECTION`, which is overwritten by `config_load` with the UCI section name (`main`). To repair an already-installed legacy package temporarily, back up the script and change exactly these two lines:
+
+```sh
+cp /etc/init.d/netbird /tmp/netbird.init.backup
+sed -i 's/CONFIG_SECTION="netbird"/CONFIG_TYPE="netbird"/' /etc/init.d/netbird
+sed -i 's/config_foreach start_instance "\$CONFIG_SECTION"/config_foreach start_instance "\$CONFIG_TYPE"/' /etc/init.d/netbird
+/etc/init.d/netbird restart
+```
+
+Verify that `/etc/init.d/netbird status` reports `running` and that `/var/run/netbird.sock` exists. Prefer `r2` or later releases, which contain this fix permanently.
 
 ## Verify on router
 

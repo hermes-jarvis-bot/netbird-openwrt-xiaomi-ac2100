@@ -278,6 +278,10 @@ jobs:
 
           Download the asset whose `openwrt-<version>` suffix exactly matches the router firmware. Install dependencies from feeds matching that firmware, especially `kmod-wireguard`.
 
+          On UBIFS-based Xiaomi AC2100 routers, opkg may reject the package's logical Installed-Size even when compressed physical overlay space is sufficient. After verifying SHA256SUMS and checking `df -h /overlay`, use `opkg --force-space install <matching-ipk>` when the measured physical headroom is sufficient. Do not use this override on a nearly full overlay.
+
+          Releases before package release r2 have a known procd init-script defect. Prefer r2 or later; the fixed script uses CONFIG_TYPE for config_foreach. Legacy users can see the repository README for the two-line temporary repair.
+
           Verify the selected asset against `SHA256SUMS` before installation.
           EOF
 
