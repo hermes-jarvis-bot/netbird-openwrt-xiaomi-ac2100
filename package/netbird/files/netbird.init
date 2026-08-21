@@ -4,7 +4,7 @@ START=99
 STOP=10
 USE_PROCD=1
 
-CONFIG_SECTION="netbird"
+CONFIG_TYPE="netbird"
 
 append_bool_flag() {
 	local section="$1"
@@ -21,7 +21,7 @@ append_extra_arg() {
 
 start_service() {
 	config_load netbird
-	config_foreach start_instance "$CONFIG_SECTION"
+	config_foreach start_instance "$CONFIG_TYPE"
 }
 
 start_instance() {
