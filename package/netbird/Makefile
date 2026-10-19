@@ -1,12 +1,12 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=netbird
-PKG_VERSION:=0.81.2
+PKG_VERSION:=0.81.3
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_NAME)_$(PKG_VERSION)_linux_mipsle_softfloat.tar.gz
 PKG_SOURCE_URL:=https://github.com/netbirdio/netbird/releases/download/v$(PKG_VERSION)
-PKG_HASH:=56933caffe5d9f9bb0b081581a05ad77e72d3e9ba9923669c0f388453f314177
+PKG_HASH:=d28b65a0fc8cfc4e64cbda1fc1a6a9fd4a2797743552aa9c47c02b2d470fe112
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 PKG_LICENSE:=BSD-3-Clause
